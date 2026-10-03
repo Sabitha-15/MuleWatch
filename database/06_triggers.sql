@@ -109,15 +109,47 @@ EXECUTE FUNCTION trg_create_fraud_alert();
 --
 -- The old and new status are automatically recorded in
 -- CASE_STATUS_HISTORY.
+--
+-- For CLOSED cases, the actual closure reason is captured
+-- from the case description.
 -- ------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION trg_case_status_history()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    v_change_reason TEXT;
 BEGIN
 
     IF OLD.case_status IS DISTINCT FROM NEW.case_status THEN
+
+        -- Default reason for normal status transitions.
+        v_change_reason := 'Case status changed';
+
+
+        -- ----------------------------------------------------
+        -- If the case is being closed, capture the actual
+        -- closure reason stored by sp_close_fraud_case.
+        -- ----------------------------------------------------
+
+        IF NEW.case_status = 'CLOSED' THEN
+
+            v_change_reason := SUBSTRING(
+                NEW.case_description
+                FROM 'Closure reason: (.*)$'
+            );
+
+            -- Fallback if no closure reason was supplied.
+            IF v_change_reason IS NULL
+               OR TRIM(v_change_reason) = '' THEN
+
+                v_change_reason := 'Case closed';
+
+            END IF;
+
+        END IF;
+
 
         INSERT INTO case_status_history (
             case_id,
@@ -131,7 +163,7 @@ BEGIN
             OLD.case_status,
             NEW.case_status,
             NEW.investigator_id,
-            'Case status changed'
+            v_change_reason
         );
 
     END IF;
