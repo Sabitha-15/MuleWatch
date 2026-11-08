@@ -4,6 +4,11 @@ import {
   ShieldAlert,
   BriefcaseBusiness,
   GitBranch,
+  SearchCheck,
+  ArrowDownToLine,
+  ReceiptText,
+  Network,
+  FileText,
 } from "lucide-react";
 
 const navigationItems = [
@@ -28,10 +33,23 @@ const navigationItems = [
     path: "/cases",
   },
   {
+  label: "Investigation",
+  path: "/investigation?account_id=6",
+  icon: SearchCheck,
+},
+  {
     label: "Money Flow",
     icon: GitBranch,
     path: "/money-flow",
   },
+  { label: "Transaction Explorer", icon: ReceiptText, path: "/transaction-explorer" },
+  { label: "Account Network", icon: Network, path: "/account-network" },
+  { label: "Investigation Reports", icon: FileText, path: "/investigation-reports" },
+  {
+  label: "Transaction Ingestion",
+  path: "/transaction-ingestion",
+  icon: ArrowDownToLine,
+},
 ];
 
 function Sidebar() {

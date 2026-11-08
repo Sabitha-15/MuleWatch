@@ -167,8 +167,7 @@ export default function MoneyFlow() {
               <h2>Money Flow Investigation</h2>
 
               <p>
-                Transaction path detected from Account #
-                {flowData.account?.account_id}.
+                Transaction path detected from Account #{flowData.root_account?.account_id}.
               </p>
             </div>
 
@@ -181,11 +180,11 @@ export default function MoneyFlow() {
               <span>Starting Account</span>
 
               <strong>
-                #{flowData.account?.account_id}
+                #{flowData.root_account?.account_id}
               </strong>
 
               <small>
-                {flowData.account?.account_number}
+                {flowData.root_account?.account_number}
               </small>
             </div>
 
@@ -193,13 +192,13 @@ export default function MoneyFlow() {
               <span>Transactions Found</span>
 
               <strong>
-                {flowData.trace?.transactions_found ?? 0}
+                {flowData.flow_summary?.transaction_count ?? 0}
               </strong>
 
               <small>
                 Max depth:{" "}
-                {flowData.trace
-                  ?.maximum_depth_reached ?? 0}
+                {flowData.flow_summary
+                  ?.max_depth ?? 0}
               </small>
             </div>
 
@@ -209,8 +208,8 @@ export default function MoneyFlow() {
               <strong>
                 ₹
                 {Number(
-                  flowData.trace
-                    ?.total_money_movement ?? 0
+                  flowData.flow_summary
+                    ?.total_amount_moved ?? 0
                 ).toLocaleString("en-IN")}
               </strong>
 
@@ -226,12 +225,12 @@ export default function MoneyFlow() {
               <span>TRANSACTION CHAIN</span>
 
               <span>
-                {flowData.flows?.length ?? 0} movements
+                {flowData.money_flow?.length ?? 0} movements
               </span>
             </div>
 
-            {flowData.flows?.length > 0 ? (
-              flowData.flows.map((flow) => (
+            {flowData.money_flow?.length > 0 ? (
+              flowData.money_flow.map((flow) => (
                 <div
                   className="flow-step"
                   key={flow.transaction_id}
@@ -241,11 +240,11 @@ export default function MoneyFlow() {
                     <span>ACCOUNT</span>
 
                     <strong>
-                      #{flow.source_account_id}
+                      #{flow.sender_account_id}
                     </strong>
 
                     <small>
-                      {flow.source_account_number}
+                      {flow.sender_account_number}
                     </small>
                   </div>
 
@@ -271,11 +270,11 @@ export default function MoneyFlow() {
                     <span>ACCOUNT</span>
 
                     <strong>
-                      #{flow.target_account_id}
+                      #{flow.receiver_account_id}
                     </strong>
 
                     <small>
-                      {flow.target_account_number}
+                      {flow.receiver_account_number}
                     </small>
                   </div>
                 </div>
@@ -289,13 +288,13 @@ export default function MoneyFlow() {
           </div>
 
           {/* TRANSACTION DETAILS */}
-          {flowData.flows?.length > 0 && (
+          {flowData.money_flow?.length > 0 && (
             <div className="transaction-details">
               <div className="flow-chain-title">
                 <span>TRANSACTION DETAILS</span>
 
                 <span>
-                  {flowData.flows.length} records
+                  {flowData.money_flow.length} records
                 </span>
               </div>
 
@@ -314,7 +313,7 @@ export default function MoneyFlow() {
                   </thead>
 
                   <tbody>
-                    {flowData.flows.map((flow) => (
+                    {flowData.money_flow.map((flow) => (
                       <tr
                         key={`detail-${flow.transaction_id}`}
                       >

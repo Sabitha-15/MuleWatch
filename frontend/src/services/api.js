@@ -50,6 +50,19 @@ export async function getAccountTransactions(
 
   return response.data;
 }
+export async function getAccountCustomers() {
+  const response = await api.get("/api/accounts/customers");
+  return response.data;
+}
+
+export async function createAccount(accountData) {
+  const response = await api.post(
+    "/api/accounts",
+    accountData
+  );
+
+  return response.data;
+}
 
 /* =========================================================
    RISK

@@ -3,97 +3,131 @@ from ml.risk_engine import predict_account_risk
 from backend.database import get_connection
 
 
-def create_risk_assessment(account_id: int):
+def create_risk_assessment(
+    account_id: int,
+    transaction_id: int | None = None,
+):
     """
-    Run the ML risk engine and persist the resulting
-    risk assessment in PostgreSQL.
+    Run the MuleWatch ML risk engine and persist the resulting
+    risk assessment.
+
+    When transaction_id is supplied, the assessment is explicitly
+    associated with that transaction.
     """
 
-    # ========================================================
-    # 1. RUN ML RISK ENGINE
-    # ========================================================
+    # ============================================================
+    # 1. RUN ML MODEL
+    # ============================================================
 
     assessment = predict_account_risk(account_id)
 
-    risk_score = assessment["risk_score"]
+    risk_score = float(assessment["risk_score"])
     risk_level = assessment["risk_level"]
     model_version = assessment["model_version"]
-
-    reasons = assessment["reasons"]
+    reasons = assessment.get("reasons", [])
 
     reason_text = "; ".join(reasons)
 
-    # ========================================================
-    # 2. FIND THE MOST RECENT TRANSACTION FOR THE ACCOUNT
-    # ========================================================
-
-    transaction_query = """
-        SELECT transaction_id
-        FROM transaction
-        WHERE sender_account_id = %s
-           OR receiver_account_id = %s
-        ORDER BY txn_time DESC
-        LIMIT 1;
-    """
-
-    insert_query = """
-        INSERT INTO risk_assessment (
-            account_id,
-            transaction_id,
-            risk_score,
-            risk_level,
-            model_version,
-            reason
-        )
-        VALUES (
-            %s,
-            %s,
-            %s,
-            %s,
-            %s,
-            %s
-        )
-        RETURNING
-            risk_assessment_id,
-            account_id,
-            transaction_id,
-            risk_score,
-            risk_level,
-            model_version,
-            assessed_at,
-            reason;
-    """
+    # ============================================================
+    # 2. VALIDATE / RESOLVE TRANSACTION
+    # ============================================================
 
     try:
         with get_connection() as connection:
             with connection.cursor() as cursor:
 
-                # ------------------------------------------------
-                # Find latest transaction
-                # ------------------------------------------------
+                if transaction_id is not None:
+
+                    cursor.execute(
+                        """
+                        SELECT
+                            transaction_id,
+                            sender_account_id,
+                            receiver_account_id
+                        FROM transaction
+                        WHERE transaction_id = %s;
+                        """,
+                        (transaction_id,),
+                    )
+
+                    transaction_row = cursor.fetchone()
+
+                    if transaction_row is None:
+                        raise ValueError(
+                            f"Transaction {transaction_id} not found."
+                        )
+
+                    if account_id not in (
+                        transaction_row[1],
+                        transaction_row[2],
+                    ):
+                        raise ValueError(
+                            "Transaction does not belong to "
+                            "the assessed account."
+                        )
+
+                    linked_transaction_id = transaction_row[0]
+
+                else:
+
+                    cursor.execute(
+                        """
+                        SELECT transaction_id
+                        FROM transaction
+                        WHERE sender_account_id = %s
+                           OR receiver_account_id = %s
+                        ORDER BY txn_time DESC
+                        LIMIT 1;
+                        """,
+                        (
+                            account_id,
+                            account_id,
+                        ),
+                    )
+
+                    transaction_row = cursor.fetchone()
+
+                    linked_transaction_id = (
+                        transaction_row[0]
+                        if transaction_row
+                        else None
+                    )
+
+                # ====================================================
+                # 3. STORE RISK ASSESSMENT
+                # ====================================================
 
                 cursor.execute(
-                    transaction_query,
-                    (account_id, account_id),
-                )
-
-                transaction_row = cursor.fetchone()
-
-                transaction_id = (
-                    transaction_row[0]
-                    if transaction_row
-                    else None
-                )
-
-                # ------------------------------------------------
-                # Persist risk assessment
-                # ------------------------------------------------
-
-                cursor.execute(
-                    insert_query,
-                    (
+                    """
+                    INSERT INTO risk_assessment (
                         account_id,
                         transaction_id,
+                        risk_score,
+                        risk_level,
+                        model_version,
+                        reason
+                    )
+                    VALUES (
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s
+                    )
+                    RETURNING
+                        risk_assessment_id,
+                        account_id,
+                        transaction_id,
+                        risk_score,
+                        risk_level,
+                        model_version,
+                        assessed_at,
+                        reason;
+                    """,
+                    (
+                        account_id,
+                        linked_transaction_id,
                         risk_score,
                         risk_level,
                         model_version,
@@ -108,7 +142,7 @@ def create_risk_assessment(account_id: int):
                     for description in cursor.description
                 ]
 
-                saved_assessment = dict(
+                database_record = dict(
                     zip(columns, row)
                 )
 
@@ -119,7 +153,16 @@ def create_risk_assessment(account_id: int):
             "Failed to persist risk assessment."
         ) from error
 
+    # ============================================================
+    # 4. RETURN INVESTIGATION-READY RESULT
+    # ============================================================
+
     return {
-        "assessment": assessment,
-        "database_record": saved_assessment,
+        "assessment": {
+            "risk_score": risk_score,
+            "risk_level": risk_level,
+            "model_version": model_version,
+            "reasons": reasons,
+        },
+        "database_record": database_record,
     }

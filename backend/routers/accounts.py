@@ -1,4 +1,6 @@
+from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, Query
+from datetime import date
 
 from backend.database import get_connection
 
@@ -7,6 +9,29 @@ router = APIRouter(
     prefix="/api/accounts",
     tags=["Accounts"],
 )
+
+
+
+
+class CreateCustomerRequest(BaseModel):
+    full_name: str
+    email: str | None = None
+    phone: str | None = None
+    date_of_birth: date | None = None
+    status: str = "ACTIVE"
+
+
+class CreateAccountRequest(BaseModel):
+    customer_id: int
+    account_number: str
+    account_type: str = "SAVINGS"
+    balance: float = 0
+    status: str = "ACTIVE"
+
+
+class UpdateCustomerStatusRequest(BaseModel):
+    new_status: str
+    change_reason: str | None = None
 
 
 @router.get("")
@@ -118,16 +143,8 @@ def list_accounts(
         with get_connection() as connection:
             with connection.cursor() as cursor:
 
-                # -----------------------------------------
-                # TOTAL COUNT
-                # -----------------------------------------
-
                 cursor.execute(count_query, parameters)
                 total_accounts = cursor.fetchone()[0]
-
-                # -----------------------------------------
-                # ACCOUNT DATA
-                # -----------------------------------------
 
                 query_parameters = parameters + [
                     page_size,
@@ -169,6 +186,336 @@ def list_accounts(
         raise HTTPException(
             status_code=500,
             detail="Failed to retrieve accounts."
+        ) from error
+
+
+@router.post("/customers")
+def create_customer(payload: CreateCustomerRequest):
+    """Create a customer record that can be linked to one or more accounts."""
+    full_name = payload.full_name.strip()
+    status = payload.status.strip().upper()
+
+    if not full_name:
+        raise HTTPException(status_code=400, detail="Customer name is required.")
+
+    if status not in {"ACTIVE", "INACTIVE", "BLOCKED"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Customer status must be ACTIVE, INACTIVE, or BLOCKED.",
+        )
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO customer (
+                        full_name, email, phone, date_of_birth, status
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING customer_id, full_name, email, phone,
+                              date_of_birth, created_at, status;
+                    """,
+                    (
+                        full_name,
+                        payload.email.strip() if payload.email else None,
+                        payload.phone.strip() if payload.phone else None,
+                        payload.date_of_birth,
+                        status,
+                    ),
+                )
+                row = cursor.fetchone()
+                columns = [description.name for description in cursor.description]
+                customer = dict(zip(columns, row))
+                return {
+                    "status": "success",
+                    "message": "Customer created successfully.",
+                    "customer": customer,
+                }
+    except HTTPException:
+        raise
+    except Exception as error:
+        if getattr(error, "sqlstate", None) == "23505":
+            raise HTTPException(
+                status_code=409,
+                detail="A customer with this email or phone already exists.",
+            ) from error
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create customer: {error}",
+        ) from error
+
+
+@router.get("/customers")
+def list_customers():
+    """
+    Return customers that can be associated with a new account.
+    """
+
+    query = """
+        SELECT
+            customer_id,
+            full_name,
+            email,
+            status
+        FROM customer
+        ORDER BY customer_id ASC;
+    """
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query)
+                rows = cursor.fetchall()
+
+                columns = [
+                    description.name
+                    for description in cursor.description
+                ]
+
+                customers = [
+                    dict(zip(columns, row))
+                    for row in rows
+                ]
+
+                return {
+                    "status": "success",
+                    "customers": customers,
+                }
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve customers."
+        ) from error
+
+
+@router.post("")
+def create_account(payload: CreateAccountRequest):
+    """
+    Create a new account for an existing customer.
+    """
+
+    account_number = payload.account_number.strip().upper()
+    account_type = payload.account_type.strip().upper()
+    status = payload.status.strip().upper()
+
+    if not account_number:
+        raise HTTPException(
+            status_code=400,
+            detail="Account number is required."
+        )
+
+    if account_type not in {"SAVINGS", "CURRENT"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Account type must be SAVINGS or CURRENT."
+        )
+
+    if status not in {"ACTIVE", "BLOCKED", "CLOSED"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Account status must be ACTIVE, BLOCKED, or CLOSED."
+        )
+
+    if payload.balance < 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Opening balance cannot be negative."
+        )
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+
+                cursor.execute(
+                    """
+                    SELECT customer_id
+                    FROM customer
+                    WHERE customer_id = %s;
+                    """,
+                    (payload.customer_id,),
+                )
+
+                if cursor.fetchone() is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Customer {payload.customer_id} not found."
+                    )
+
+                cursor.execute(
+                    """
+                    SELECT account_id
+                    FROM account
+                    WHERE account_number = %s;
+                    """,
+                    (account_number,),
+                )
+
+                if cursor.fetchone() is not None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Account number {account_number} already exists."
+                    )
+
+                cursor.execute(
+                    """
+                    INSERT INTO account (
+                        customer_id,
+                        account_number,
+                        account_type,
+                        balance,
+                        status
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING
+                        account_id,
+                        account_number,
+                        account_type,
+                        balance,
+                        opened_at,
+                        status;
+                    """,
+                    (
+                        payload.customer_id,
+                        account_number,
+                        account_type,
+                        payload.balance,
+                        status,
+                    ),
+                )
+
+                row = cursor.fetchone()
+
+                columns = [
+                    description.name
+                    for description in cursor.description
+                ]
+
+                account = dict(zip(columns, row))
+
+                return {
+                    "status": "success",
+                    "message": "Account created successfully.",
+                    "account": account,
+                }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to create account."
+        ) from error
+
+
+@router.get("/customers/{customer_id}/summary")
+def get_customer_summary(customer_id: int):
+    """Return the Phase 2 customer summary using the PostgreSQL function."""
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT * FROM fn_phase2_customer_summary(%s);",
+                    (customer_id,),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Customer {customer_id} was not found.",
+                    )
+                columns = [description.name for description in cursor.description]
+                return dict(zip(columns, row))
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve customer summary: {error}",
+        ) from error
+
+
+@router.get("/customers/{customer_id}/audit")
+def get_customer_audit(customer_id: int):
+    """Return recent customer changes recorded by the audit trigger."""
+    query = """
+        SELECT
+            audit_id,
+            customer_id,
+            action_type,
+            old_data,
+            new_data,
+            changed_at,
+            change_reason
+        FROM customer_audit_log
+        WHERE customer_id = %s
+        ORDER BY audit_id DESC
+        LIMIT 20;
+    """
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, (customer_id,))
+                rows = cursor.fetchall()
+                columns = [description.name for description in cursor.description]
+                return {
+                    "customer_id": customer_id,
+                    "audit_records": [
+                        dict(zip(columns, row)) for row in rows
+                    ],
+                }
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve customer audit history: {error}",
+        ) from error
+
+
+@router.patch("/customers/{customer_id}/status")
+def update_customer_status(
+    customer_id: int,
+    payload: UpdateCustomerStatusRequest,
+):
+    """Change customer status through the Phase 2 stored procedure."""
+    new_status = payload.new_status.strip().upper()
+    if new_status not in {"ACTIVE", "INACTIVE", "BLOCKED"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Customer status must be ACTIVE, INACTIVE, or BLOCKED.",
+        )
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    CALL sp_phase2_update_customer_status(%s, %s, %s);
+                    """,
+                    (
+                        customer_id,
+                        new_status,
+                        payload.change_reason.strip()
+                        if payload.change_reason
+                        else None,
+                    ),
+                )
+        return {
+            "status": "success",
+            "message": "Customer status procedure executed successfully.",
+            "customer_id": customer_id,
+            "new_status": new_status,
+        }
+    except Exception as error:
+        message = str(error)
+        if "does not exist" in message:
+            raise HTTPException(status_code=404, detail=message) from error
+        if "Invalid customer status" in message:
+            raise HTTPException(status_code=400, detail=message) from error
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update customer status: {message}",
         ) from error
 
 

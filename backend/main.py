@@ -2,12 +2,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.routers import (
     accounts,
-    transactions,
-    risk,
     alerts,
     cases,
-    money_flow,
     dashboard,
+    findings, 
+    investigation,
+    money_flow,
+    network,
+    risk,
+    transaction_investigation,
+    transactions,
+    phase2,
 )
 app = FastAPI(
     title="MuleWatch API",
@@ -29,6 +34,14 @@ app.include_router(alerts.router)
 app.include_router(cases.router)
 app.include_router(money_flow.router)
 app.include_router(dashboard.router)
+app.include_router(investigation.router)
+app.include_router(
+    transaction_investigation.router
+)
+app.include_router(network.router)
+app.include_router(findings.router)
+app.include_router(phase2.router)
+
 # ============================================================
 # CORS CONFIGURATION
 # ============================================================

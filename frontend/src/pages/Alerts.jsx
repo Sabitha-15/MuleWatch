@@ -660,6 +660,23 @@ function Alerts() {
             </div>
 
             <div className="alert-review-section">
+              <span>INVESTIGATION</span>
+
+              <button
+                className="primary-button"
+                onClick={() => {
+                  if (selectedAlert?.account_id) {
+                    window.location.href =
+                      `/investigation?account_id=${selectedAlert.account_id}`;
+                  }
+                }}
+                disabled={!selectedAlert?.account_id}
+              >
+                Investigate Account
+              </button>
+            </div>
+
+            <div className="alert-review-section">
 
               <span>UPDATE STATUS</span>
 

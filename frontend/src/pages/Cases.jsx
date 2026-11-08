@@ -158,6 +158,11 @@ function Cases() {
   const [addingNote, setAddingNote] = useState(false);
   const [closureReason, setClosureReason] = useState("");
   const [closingCase, setClosingCase] = useState(false);
+
+  const [findingType, setFindingType] = useState("INCONCLUSIVE");
+  const [investigationFinding, setInvestigationFinding] = useState("");
+  const [recordingFinding, setRecordingFinding] = useState(false);
+
   async function fetchCases() {
     setLoading(true);
     setError("");
@@ -274,34 +279,132 @@ async function handleAddNote(event) {
 }
 
 async function handleCloseCase(event) {
-  event.preventDefault();
+    event.preventDefault();
 
-  if (!selectedCase?.case?.case_id || !closureReason.trim()) return;
+    if (
+      !selectedCase?.case?.case_id ||
+      !findingType ||
+      !investigationFinding.trim() ||
+      !closureReason.trim()
+    ) {
+      setError(
+        "Finding type, investigation finding and closure reason are required."
+      );
+      return;
+    }
 
-  setClosingCase(true);
-  setError("");
+    setClosingCase(true);
+    setError("");
 
-  try {
-    await closeCase(
-      selectedCase.case.case_id,
-      selectedCase.case.investigator_id,
-      closureReason.trim()
-    );
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/investigation/case/${selectedCase.case.case_id}/decision`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            investigator_id: selectedCase.case.investigator_id,
+            finding_type: findingType,
+            finding: investigationFinding.trim(),
+            closure_reason: closureReason.trim(),
+          }),
+        }
+      );
 
-    setClosureReason("");
+      const data = await response.json();
 
-    await handleViewCase(selectedCase.case.case_id);
-    await fetchCases();
-  } catch (err) {
-    console.error(err);
-    setError(
-      err?.response?.data?.detail || "Unable to close fraud case."
-    );
-  } finally {
-    setClosingCase(false);
+      if (!response.ok) {
+        throw new Error(
+          data?.detail || "Unable to record case decision."
+        );
+      }
+
+      setClosureReason("");
+      setInvestigationFinding("");
+      setFindingType("INCONCLUSIVE");
+
+      await handleViewCase(selectedCase.case.case_id);
+      await fetchCases();
+
+      setActionMessage(
+        "Final finding recorded and case closed successfully."
+      );
+    } catch (err) {
+      console.error(err);
+      setError(
+        err?.message ||
+          err?.response?.data?.detail ||
+          "Unable to record case decision."
+      );
+    } finally {
+      setClosingCase(false);
+    }
   }
-}  
-  
+
+  async function handleRecordFinding(event) {
+    event.preventDefault();
+
+    if (
+      !selectedCase?.case?.case_id ||
+      !investigationFinding.trim()
+    ) {
+      setError("Enter an investigation finding before saving.");
+      return;
+    }
+
+    setRecordingFinding(true);
+    setError("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/investigation/case/${selectedCase.case.case_id}/finding`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            investigator_id: selectedCase.case.investigator_id,
+            finding_type: findingType,
+            finding: investigationFinding.trim(),
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.detail || "Unable to record investigation finding."
+        );
+      }
+
+      setInvestigationFinding("");
+      setActionMessage("Investigation finding recorded successfully.");
+
+      await handleViewCase(selectedCase.case.case_id);
+    } catch (err) {
+      console.error(err);
+      setError(
+        err?.message ||
+          err?.response?.data?.detail ||
+          "Unable to record investigation finding."
+      );
+    } finally {
+      setRecordingFinding(false);
+    }
+  }
+
+  function openInvestigationWorkspace(accountId) {
+    if (!accountId) {
+      setError("This case does not contain a linked account.");
+      return;
+    }
+
+    window.location.href = `/investigation?account_id=${accountId}`;
+  }
 
   async function handleOpenCase(event) {
     event.preventDefault();
@@ -737,16 +840,32 @@ async function handleCloseCase(event) {
                     </td>
 
                     <td>
-                      <button
-                        className="table-action-button"
-                        onClick={() =>
-                          handleViewCase(item.case_id)
-                        }
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: "6px",
+                          flexWrap: "wrap",
+                        }}
                       >
-                        Review
+                        <button
+                          className="table-action-button"
+                          onClick={() =>
+                            openInvestigationWorkspace(item.account_id)
+                          }
+                        >
+                          Investigate
+                        </button>
 
-                        <ChevronRight size={15} />
-                      </button>
+                        <button
+                          className="table-action-button"
+                          onClick={() =>
+                            handleViewCase(item.case_id)
+                          }
+                        >
+                          Review
+                          <ChevronRight size={15} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -819,13 +938,33 @@ async function handleCloseCase(event) {
                 </p>
               </div>
 
-              <button
-                className="icon-button"
-                onClick={() => setSelectedCase(null)}
-                aria-label="Close case investigation"
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
               >
-                <X size={20} />
-              </button>
+                <button
+                  className="secondary-button"
+                  onClick={() =>
+                    openInvestigationWorkspace(
+                      selectedCase.case?.account_id
+                    )
+                  }
+                  disabled={!selectedCase.case?.account_id}
+                >
+                  Investigate Account
+                </button>
+
+                <button
+                  className="icon-button"
+                  onClick={() => setSelectedCase(null)}
+                  aria-label="Close case investigation"
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
 
             {loadingCase ? (
@@ -922,6 +1061,35 @@ async function handleCloseCase(event) {
                     {selectedCase.case?.case_description ||
                       "No case description provided."}
                   </p>
+                </div>
+
+                {/* INVESTIGATION FINDING */}
+                <div className="detail-item detail-wide">
+                  <span>Investigation Finding</span>
+
+                  <p>
+                    {selectedCase.case?.finding_type ? (
+                      <>
+                        <strong>
+                          {selectedCase.case.finding_type}
+                        </strong>
+                        {" — "}
+                        {selectedCase.case?.investigation_finding ||
+                          "No finding recorded."}
+                      </>
+                    ) : (
+                      "No structured finding recorded yet."
+                    )}
+                  </p>
+
+                  {selectedCase.case?.finding_recorded_at && (
+                    <small>
+                      Recorded{" "}
+                      {formatDate(
+                        selectedCase.case.finding_recorded_at
+                      )}
+                    </small>
+                  )}
                 </div>
 
                 {/* LINKED TRANSACTIONS */}
@@ -1142,9 +1310,129 @@ async function handleCloseCase(event) {
 {selectedCase.case?.case_status !== "CLOSED" && (
   <form
     className="case-form"
+    onSubmit={handleRecordFinding}
+    style={{
+      marginTop: "16px",
+      padding: "16px",
+      border: "1px solid #E2E8F0",
+      borderRadius: "10px",
+      background: "#F8FAFC",
+    }}
+  >
+    <div className="content-card-header">
+      <div>
+        <p className="section-eyebrow">
+          INVESTIGATOR FINDING
+        </p>
+
+        <h2>Record Investigation Evidence</h2>
+
+        <p>
+          Convert the investigation evidence into a structured
+          investigator finding without treating the ML score as
+          a final decision.
+        </p>
+      </div>
+    </div>
+
+    <div className="form-grid">
+      <label>
+        Finding Type
+
+        <select
+          value={findingType}
+          onChange={(event) =>
+            setFindingType(event.target.value)
+          }
+        >
+          <option value="SUSPICIOUS">SUSPICIOUS</option>
+          <option value="LEGITIMATE">LEGITIMATE</option>
+          <option value="INCONCLUSIVE">INCONCLUSIVE</option>
+        </select>
+      </label>
+
+      <label className="form-wide">
+        Investigation Finding
+
+        <textarea
+          rows="5"
+          value={investigationFinding}
+          onChange={(event) =>
+            setInvestigationFinding(event.target.value)
+          }
+          placeholder="Document the observed evidence, transaction behaviour, connected accounts or money movement..."
+          maxLength={5000}
+          required
+        />
+      </label>
+    </div>
+
+    <div className="modal-actions">
+      <button
+        type="submit"
+        className="secondary-button"
+        disabled={
+          recordingFinding ||
+          !investigationFinding.trim()
+        }
+      >
+        {recordingFinding ? (
+          <>
+            <RefreshCw size={16} className="spin" />
+            Saving Finding...
+          </>
+        ) : (
+          "Save Investigation Finding"
+        )}
+      </button>
+    </div>
+  </form>
+)}
+
+{selectedCase.case?.case_status !== "CLOSED" && (
+  <form
+    className="case-form"
     onSubmit={handleCloseCase}
     style={{ marginTop: "16px" }}
   >
+    <div
+      className="form-message"
+      style={{
+        marginBottom: "4px",
+      }}
+    >
+      Final case decision will store the investigator finding,
+      closure reason and case-status audit event together.
+    </div>
+
+    <label>
+      Final Finding Type
+      <select
+        value={findingType}
+        onChange={(event) =>
+          setFindingType(event.target.value)
+        }
+      >
+        <option value="SUSPICIOUS">SUSPICIOUS</option>
+        <option value="LEGITIMATE">LEGITIMATE</option>
+        <option value="INCONCLUSIVE">INCONCLUSIVE</option>
+      </select>
+    </label>
+
+    <label className="form-wide">
+      Final Investigation Finding
+      <textarea
+        rows="4"
+        value={investigationFinding}
+        onChange={(event) =>
+          setInvestigationFinding(event.target.value)
+        }
+        placeholder="State the final evidence-based finding for this case..."
+        maxLength={5000}
+        required
+      />
+    </label>
+
     <label className="form-wide">
       Closure Reason
       <textarea
@@ -1161,7 +1449,11 @@ async function handleCloseCase(event) {
       <button
         type="submit"
         className="primary-button"
-        disabled={closingCase || !closureReason.trim()}
+        disabled={
+          closingCase ||
+          !closureReason.trim() ||
+          !investigationFinding.trim()
+        }
       >
         {closingCase ? (
           <>

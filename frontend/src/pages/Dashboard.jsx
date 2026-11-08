@@ -274,9 +274,16 @@ function Dashboard() {
                   </div>
 
                   <div className="account-risk-info">
-                    <strong>
+                    <button
+                      className="link-button"
+                      onClick={() => {
+                        window.location.href =
+                          `/investigation?account_id=${account.account_id}`;
+                      }}
+                      type="button"
+                    >
                       {account.account_number}
-                    </strong>
+                    </button>
 
                     <span>
                       Account #{account.account_id}

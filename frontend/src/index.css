@@ -3,8 +3,8 @@
     Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
 
-  color: #e8edf5;
-  background: #0b0f14;
+  color: #172033;
+  background: #F5F7FA;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -23,7 +23,8 @@ body,
 
 body {
   min-height: 100vh;
-  background: #0b0f14;
+  background: #F5F7FA;
+  color: #172033;
 }
 
 button,
